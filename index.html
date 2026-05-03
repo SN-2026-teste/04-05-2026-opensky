@@ -204,6 +204,8 @@
     .badge-atrasado   { background: rgba(251,146,60,.12); color: var(--orange); }
     .badge-atrasado .dot   { background: var(--orange); }
     .badge-cancelado  { background: rgba(248,113,113,.12);color: var(--red);    }
+    .badge-em.voo, [class*='em-voo'] { background: rgba(56,189,248,.12); color: var(--accent); }
+    .badge-desviado   { background: rgba(167,139,250,.12); color: #a78bfa; }
     .badge-cancelado .dot  { background: var(--red);    }
 
     .airline-pill {
@@ -358,6 +360,13 @@
       });
     }
     function guessStatus(flight, kind) {
+      // Usa status direto da API (AviationStack) se disponivel
+      if (flight.status) {
+        const map = { pousado:'pousado', partiu:'partiu', programado:'programado',
+                      cancelado:'cancelado', 'em voo':'em voo', desviado:'desviado' };
+        return map[flight.status] || flight.status;
+      }
+      // Fallback: estima pelo horario
       if (!flight.time_iso) return 'programado';
       const ts  = new Date(flight.time_iso).getTime();
       const now = Date.now();
@@ -366,6 +375,7 @@
     }
     function statusBadge(s) {
       const labels = { pousado:'Pousado', partiu:'Partiu', programado:'Programado',
+                       'em voo':'Em voo', desviado:'Desviado',
                        atrasado:'Atrasado', cancelado:'Cancelado' };
       return `<span class="badge badge-${s}"><span class="dot"></span>${labels[s]||s}</span>`;
     }
