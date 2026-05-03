@@ -1,0 +1,9 @@
+{
+  "updated_at": "2026-05-03T20:00:00+00:00",
+  "airport_icao": "SBCA",
+  "airport_name": "Cascavel",
+  "window_hours": 48,
+  "arrivals": [],
+  "departures": [],
+  "_note": "Gerado automaticamente pelo GitHub Actions. Execute o workflow para popular os dados."
+}
