@@ -1,117 +1,135 @@
 """
 fetch_flights.py
-Busca chegadas e partidas dos últimos 2 dias na OpenSky Network API
-para um ou mais aeroportos e salva cada um em data/{ICAO}.json.
+Busca chegadas e partidas na AviationStack API (gratuita).
+Salva cada aeroporto em data/{ICAO}.json para o GitHub Pages.
 
-Variáveis de ambiente:
-  AIRPORTS      → ICAO(s) separados por vírgula, ex: SBCA,SBGR,SBSP
-                  Padrão: SBCA
-  OPENSKY_USER  → usuário OpenSky (GitHub Secret)
-  OPENSKY_PASS  → senha OpenSky (GitHub Secret)
+Variaveis de ambiente:
+  AIRPORTS           -> ICAOs separados por virgula (ex: SBCA,SBGR)
+                        Padrao: SBCA
+  AVIATIONSTACK_KEY  -> API Key da AviationStack (GitHub Secret)
+
+Plano gratuito: 100 chamadas/mes.
+  1 aeroporto (chegadas + partidas = 2 chamadas) x 1x/dia = 60/mes  OK
+  2 aeroportos x 1x/dia = 120/mes  (leve ultrapassagem)
 """
 
 import json
 import os
-import time
 from datetime import datetime, timezone
 
 import requests
 
-# ── Configurações ─────────────────────────────────────────────────────────────
+# ── Configuracoes ─────────────────────────────────────────────────────────────
 
+API_KEY      = os.environ.get("AVIATIONSTACK_KEY", "").strip()
 airports_env = os.environ.get("AIRPORTS", "SBCA")
 AIRPORTS     = [a.strip().upper() for a in airports_env.split(",") if a.strip()]
-API_BASE     = "https://opensky-network.org/api"
-USERNAME     = os.environ.get("OPENSKY_USER", "")
-PASSWORD     = os.environ.get("OPENSKY_PASS", "")
-AUTH         = (USERNAME, PASSWORD) if USERNAME else None
+API_BASE     = "http://api.aviationstack.com/v1"   # HTTP no plano gratuito
 
-now   = int(time.time())
-begin = now - 172800  # 48 horas atrás
+if not API_KEY:
+    print("[ERRO] AVIATIONSTACK_KEY nao configurado. Adicione o Secret no repositorio.")
+    raise SystemExit(1)
 
+print(f"AviationStack API configurada.")
+print(f"Aeroportos: {', '.join(AIRPORTS)}")
+
+# Mapa ICAO -> nome
 AIRPORT_NAMES = {
-    "SBRB":"Rio Branco","SBMO":"Maceió","SBMQ":"Macapá","SBEG":"Manaus",
-    "SBSV":"Salvador","SBIL":"Ilhéus","SBPS":"Porto Seguro","SBFE":"Feira de Santana",
-    "SBFZ":"Fortaleza","SBJU":"Juazeiro do Norte","SBBR":"Brasília","SBVT":"Vitória",
-    "SBGO":"Goiânia","SBSL":"São Luís","SBIM":"Imperatriz","SBCY":"Cuiabá",
-    "SBCG":"Campo Grande","SBPP":"Ponta Porã","SBCF":"Belo Horizonte / Confins",
-    "SBBH":"Belo Horizonte / Pampulha","SBUL":"Uberlândia","SBUR":"Uberaba",
-    "SBMK":"Montes Claros","SBIP":"Ipatinga","SBVG":"Varginha","SBGV":"Gov. Valadares",
-    "SBBE":"Belém","SBSN":"Santarém","SBMA":"Marabá","SBJP":"João Pessoa",
-    "SBCT":"Curitiba","SBFI":"Foz do Iguaçu","SBCA":"Cascavel","SBLO":"Londrina",
-    "SBMG":"Maringá","SBRF":"Recife","SBPL":"Petrolina","SBTE":"Teresina",
-    "SBGL":"Rio de Janeiro / Galeão","SBRJ":"Rio de Janeiro / Santos Dumont",
-    "SBCB":"Cabo Frio","SBSG":"Natal","SBPA":"Porto Alegre","SBCX":"Caxias do Sul",
-    "SBPK":"Pelotas","SBUG":"Uruguaiana","SBPV":"Porto Velho","SBJI":"Ji-Paraná",
-    "SBBV":"Boa Vista","SBFL":"Florianópolis","SBJV":"Joinville","SBNF":"Navegantes",
-    "SBJA":"Jaguaruna","SBGR":"São Paulo / Guarulhos","SBSP":"São Paulo / Congonhas",
-    "SBKP":"Campinas / Viracopos","SBRP":"Ribeirão Preto","SBSJ":"São José dos Campos",
-    "SBDN":"Presidente Prudente","SBAQ":"Araraquara","SBML":"Marília","SBAU":"Araçatuba",
-    "SBSE":"Aracaju","SBPJ":"Palmas",
-}
-
-AIRLINES = {
-    "GLO":"GOL","TAM":"LATAM","AZU":"Azul","ONE":"VOEPASS",
-    "PTB":"Passaredo","ABL":"Azul Cargo","TLA":"Total Linhas Aéreas",
+    "SBRB":"Rio Branco","SBMO":"Maceio","SBMQ":"Macapa","SBEG":"Manaus",
+    "SBSV":"Salvador","SBIL":"Ilheus","SBPS":"Porto Seguro",
+    "SBFZ":"Fortaleza","SBJU":"Juazeiro do Norte","SBBR":"Brasilia",
+    "SBVT":"Vitoria","SBGO":"Goiania","SBSL":"Sao Luis","SBCY":"Cuiaba",
+    "SBCG":"Campo Grande","SBCF":"Belo Horizonte / Confins",
+    "SBBH":"Belo Horizonte / Pampulha","SBUL":"Uberlandia",
+    "SBBE":"Belem","SBSN":"Santarem","SBJP":"Joao Pessoa",
+    "SBCT":"Curitiba","SBFI":"Foz do Iguacu","SBCA":"Cascavel",
+    "SBLO":"Londrina","SBMG":"Maringa","SBRF":"Recife","SBTE":"Teresina",
+    "SBGL":"Rio de Janeiro / Galeao","SBRJ":"Rio / Santos Dumont",
+    "SBSG":"Natal","SBPA":"Porto Alegre","SBCX":"Caxias do Sul",
+    "SBPV":"Porto Velho","SBBV":"Boa Vista","SBFL":"Florianopolis",
+    "SBJV":"Joinville","SBNF":"Navegantes","SBGR":"Sao Paulo / Guarulhos",
+    "SBSP":"Sao Paulo / Congonhas","SBKP":"Campinas / Viracopos",
+    "SBRP":"Ribeirao Preto","SBSE":"Aracaju","SBPJ":"Palmas",
 }
 
 
-def get_airline(callsign):
-    if not callsign:
-        return "—"
-    cs = callsign.strip().upper()
-    for prefix, name in AIRLINES.items():
-        if cs.startswith(prefix):
-            return name
-    return cs[:3]
-
-
-def unix_to_iso(ts):
-    if ts is None:
-        return None
-    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
-
-
-def process_flights(flights, kind):
-    result = []
-    for f in flights:
-        if not isinstance(f, dict):
-            continue
-        callsign = (f.get("callsign") or "").strip()
-        if not callsign:
-            continue
-        airport_key = (
-            f.get("estDepartureAirport") if kind == "arrival"
-            else f.get("estArrivalAirport")
-        ) or ""
-        time_key = f.get("lastSeen") if kind == "arrival" else f.get("firstSeen")
-        result.append({
-            "callsign":     callsign,
-            "airline":      get_airline(callsign),
-            "icao24":       f.get("icao24", ""),
-            "airport":      airport_key,
-            "airport_name": AIRPORT_NAMES.get(airport_key, airport_key or "—"),
-            "time_unix":    time_key,
-            "time_iso":     unix_to_iso(time_key),
-        })
-    result.sort(key=lambda x: x["time_unix"] or 0)
-    return result
-
-
-def fetch(endpoint, airport):
-    url    = f"{API_BASE}/flights/{endpoint}"
-    params = {"airport": airport, "begin": begin, "end": now}
+def fetch_flights(icao: str, kind: str) -> list:
+    """
+    kind: 'arrival' ou 'departure'
+    Retorna lista de voos normalizados.
+    """
+    param_key = "arr_icao" if kind == "arrival" else "dep_icao"
     try:
-        r = requests.get(url, params=params, auth=AUTH, timeout=30)
+        r = requests.get(
+            f"{API_BASE}/flights",
+            params={
+                "access_key": API_KEY,
+                param_key:    icao,
+                "limit":      100,
+            },
+            timeout=30,
+        )
         r.raise_for_status()
         data = r.json()
-        return data if isinstance(data, list) else []
+
+        if "error" in data:
+            msg = data["error"].get("message", str(data["error"]))
+            print(f"  [AVISO] API retornou erro para {icao} ({kind}): {msg}")
+            return []
+
+        flights = data.get("data", [])
+        result  = []
+
+        for f in flights:
+            airline_info  = f.get("airline") or {}
+            dep_info      = f.get("departure") or {}
+            arr_info      = f.get("arrival")   or {}
+            flight_info   = f.get("flight")    or {}
+
+            if kind == "arrival":
+                route_icao = dep_info.get("icao", "")
+                scheduled  = arr_info.get("scheduled", "")
+                estimated  = arr_info.get("estimated", "")
+                actual     = arr_info.get("actual", "")
+            else:
+                route_icao = arr_info.get("icao", "")
+                scheduled  = dep_info.get("scheduled", "")
+                estimated  = dep_info.get("estimated", "")
+                actual     = dep_info.get("actual", "")
+
+            # Determina o melhor horario disponivel
+            time_iso = actual or estimated or scheduled or ""
+
+            # Determina situacao
+            raw_status = (f.get("flight_status") or "").lower()
+            status_map = {
+                "landed":    "pousado",
+                "active":    "em voo",
+                "scheduled": "programado",
+                "cancelled": "cancelado",
+                "diverted":  "desviado",
+                "incident":  "incidente",
+            }
+            status = status_map.get(raw_status, raw_status or "programado")
+
+            result.append({
+                "callsign":     flight_info.get("iata") or flight_info.get("icao") or "?",
+                "airline":      airline_info.get("name") or airline_info.get("iata") or "?",
+                "airport":      route_icao,
+                "airport_name": AIRPORT_NAMES.get(route_icao, route_icao or "?"),
+                "scheduled":    scheduled,
+                "time_iso":     time_iso,
+                "status":       status,
+            })
+
+        return result
+
     except Exception as e:
-        print(f"  [AVISO] {endpoint} para {airport}: {e}")
+        print(f"  [AVISO] Falha ao buscar {kind} de {icao}: {e}")
         return []
 
 
-# ── Execução ──────────────────────────────────────────────────────────────────
+# ── Execucao ──────────────────────────────────────────────────────────────────
 
 os.makedirs("data", exist_ok=True)
 
@@ -119,14 +137,14 @@ for icao in AIRPORTS:
     name = AIRPORT_NAMES.get(icao, icao)
     print(f"\nBuscando {icao} - {name}...")
 
-    arrivals   = process_flights(fetch("arrival",   icao), "arrival")
-    departures = process_flights(fetch("departure", icao), "departure")
+    arrivals   = fetch_flights(icao, "arrival")
+    departures = fetch_flights(icao, "departure")
 
     output = {
         "updated_at":   datetime.now(timezone.utc).isoformat(),
         "airport_icao": icao,
         "airport_name": name,
-        "window_hours": 48,
+        "source":       "AviationStack",
         "arrivals":     arrivals,
         "departures":   departures,
     }
