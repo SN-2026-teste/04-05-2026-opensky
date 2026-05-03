@@ -2,7 +2,9 @@ name: Atualizar dados de voos
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    # Roda 1x por dia ao meio-dia UTC (plano gratuito: 100 chamadas/mes)
+    # Para mais aeroportos ou frequencia, atualize para um plano pago
+    - cron: '0 12 * * *'
   workflow_dispatch:
 
 jobs:
@@ -23,11 +25,13 @@ jobs:
       - name: Instalar dependencias
         run: pip install requests
 
-      - name: Buscar dados na OpenSky Network
+      - name: Buscar dados na AviationStack
         run: python scripts/fetch_flights.py
         env:
-          AIRPORTS: ${{ vars.AIRPORTS || 'SBCA,SBGR,SBSP,SBCT,SBGL,SBBR' }}
-          OPENSKY_CREDENTIALS: ${{ secrets.OPENSKY_CREDENTIALS }}
+          # Para plano gratuito (100 chamadas/mes): use apenas 1 aeroporto
+          # Para mais aeroportos, atualize o plano em aviationstack.com
+          AIRPORTS: ${{ vars.AIRPORTS || 'SBCA' }}
+          AVIATIONSTACK_KEY: ${{ secrets.AVIATIONSTACK_KEY }}
 
       - name: Commitar JSONs atualizados
         uses: stefanzweifel/git-auto-commit-action@v5
