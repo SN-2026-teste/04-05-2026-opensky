@@ -1,1 +1,36 @@
+name: Atualizar dados de voos
 
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch-and-commit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: pip install requests
+
+      - name: Buscar dados na OpenSky Network
+        run: python scripts/fetch_flights.py
+        env:
+          AIRPORTS: ${{ vars.AIRPORTS || 'SBCA,SBGR,SBSP,SBCT,SBGL,SBBR' }}
+          OPENSKY_CREDENTIALS: ${{ secrets.OPENSKY_CREDENTIALS }}
+
+      - name: Commitar JSONs atualizados
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: atualiza dados de voos [skip ci]"
+          file_pattern: data/*.json
